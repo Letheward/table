@@ -14,6 +14,64 @@
 
 
 
+/* ==== Functions ==== */
+
+u8 compare_number_ascend(DataTable_Entry a, DataTable_Entry b) {
+    
+    // ehh.... how to clean this up?
+    if (a.type == DTE_TYPE_EMPTY && b.type >= DTE_TYPE_UINT64 && b.type <= DTE_TYPE_FLOAT64) return 1;
+    if (b.type == DTE_TYPE_EMPTY && a.type >= DTE_TYPE_UINT64 && a.type <= DTE_TYPE_FLOAT64) return 0;
+    if (a.type == DTE_TYPE_EMPTY && b.type == DTE_TYPE_EMPTY) return 1; // todo: how to compare empty?
+    
+    assert(a.type == b.type);
+    
+    switch (a.type) {
+        case DTE_TYPE_UINT64:   return a.data.uint64  < b.data.uint64;  
+        case DTE_TYPE_INT64:    return a.data.int64   < b.data.int64;
+        case DTE_TYPE_FLOAT64:  return a.data.float64 < b.data.float64;
+        default:                assert(0); return 0; // assert if other type
+    }
+}
+
+u8 compare_number_descend(DataTable_Entry a, DataTable_Entry b) {
+
+    // ehh.... how to clean this up?
+    if (a.type == DTE_TYPE_EMPTY && b.type >= DTE_TYPE_UINT64 && b.type <= DTE_TYPE_FLOAT64) return 0;
+    if (b.type == DTE_TYPE_EMPTY && a.type >= DTE_TYPE_UINT64 && a.type <= DTE_TYPE_FLOAT64) return 1;
+    if (a.type == DTE_TYPE_EMPTY && b.type == DTE_TYPE_EMPTY) return 1; // todo: how to compare empty?
+    
+    assert(a.type == b.type);
+    
+    switch (a.type) {
+        case DTE_TYPE_UINT64:   return a.data.uint64  > b.data.uint64;  
+        case DTE_TYPE_INT64:    return a.data.int64   > b.data.int64;
+        case DTE_TYPE_FLOAT64:  return a.data.float64 > b.data.float64;
+        default:                assert(0); return 0; // assert if other type
+    }
+}
+
+DataTable_Entry sum_number(DataTable_Entry acc, DataTable_Entry x) {
+    
+    if (acc.type < DTE_TYPE_UINT64 || acc.type > DTE_TYPE_FLOAT64) {
+        if (x.type > DTE_TYPE_FLOAT64) return (DataTable_Entry) {0};
+        return x;
+    }
+    
+    if (acc.type != x.type) return acc;
+    
+    switch (acc.type) {
+        case DTE_TYPE_UINT64:  { acc.data.uint64  += x.data.uint64;  return acc; }
+        case DTE_TYPE_INT64:   { acc.data.int64   += x.data.int64;   return acc; }
+        case DTE_TYPE_FLOAT64: { acc.data.float64 += x.data.float64; return acc; }
+        default: return acc;
+    }
+}
+
+
+
+
+
+
 void program() {
 
 
@@ -50,6 +108,10 @@ void program() {
                 "    clear col <index>\n"
                 "    swap row <a> <b>\n"
                 "    swap col <a> <b>\n"
+                "    sort row <index> <method>\n"
+                "    sort col <index> <method>\n"
+                "    reduce row\n"
+                "    reduce col\n"
             );
             goto done;
         }
@@ -218,6 +280,64 @@ void program() {
             }
         }
         
+        if (string_equal(command, string("sort"))) {
+            
+            String direction    = string_eat_by_spaces(&line);
+            String index_string = string_eat_by_spaces(&line);
+            String compare      = string_eat_by_spaces(&line);
+            
+            if (string_equal(direction, string("row"))) {
+                
+                u64 index;
+                if (!parse_u64(index_string, &index)) goto invalid_command;
+                
+                if (string_equal(compare, string("ascend"))) {
+                    data_table_sort_row(&table, index, 0, compare_number_ascend);
+                } else if (string_equal(compare, string("descend"))) {
+                    data_table_sort_row(&table, index, 0, compare_number_descend);
+                } else if (!compare.count) {
+                    data_table_sort_row(&table, index, 0, compare_number_descend);
+                } else {
+                    goto invalid_command;
+                }
+
+                goto done;
+            
+            } else if (string_equal(direction, string("col")) || string_equal(direction, string("column"))) {
+
+                u64 index;
+                if (!parse_u64(index_string, &index)) goto invalid_command;
+                
+                if (string_equal(compare, string("ascend"))) {
+                    data_table_sort_column(&table, index, 0, compare_number_ascend);
+                } else if (string_equal(compare, string("descend"))) {
+                    data_table_sort_column(&table, index, 0, compare_number_descend);
+                } else if (!compare.count) {
+                    data_table_sort_column(&table, index, 0, compare_number_descend);
+                } else {
+                    data_table_sort_column(&table, index, 0, compare_number_ascend);
+                }
+           
+                goto done;
+            
+            } else {
+                goto invalid_command;
+            }
+        }
+        
+        if (string_equal(command, string("reduce"))) {
+            
+            String direction = string_eat_by_spaces(&line);
+        
+            if (string_equal(direction, string("row"))) {
+                data_table_reduce_all_row(&table, sum_number);
+                goto done;
+            } else if (string_equal(direction, string("col")) || string_equal(direction, string("column"))) {
+                data_table_reduce_all_column(&table, sum_number);
+                goto done;
+            }
+        }
+
 
         invalid_command:
         print(string("[Error] Invalid command: \"@\". Enter \"help\" to get list of commands.\n"), full_line);
@@ -252,12 +372,11 @@ void program() {
             
             default: break;
         }
-
     }
 
 
     // safe exit
-    printf("Save filename? (Enter to skip and don't save)\n> ");
+    printf("Filename? (Enter to skip and don't save)\n> ");
     String line = read_line();
     if (line.count) {
         String path = string_eat_by_spaces(&line);
